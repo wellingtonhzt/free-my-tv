@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -97,7 +98,7 @@ final class Photos {
 
     /** On in Home Settings and something imported. */
     static boolean on(Context c) {
-        return Prefs.photos() && !files(c).isEmpty();
+        return Prefs.photos();   // this personalized build includes a day/night wallpaper pair
     }
 
     /** For the screensaver: the photos as picks (no title, no caption). */
@@ -119,36 +120,42 @@ final class Photos {
 
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
     private static final Handler main = new Handler(Looper.getMainLooper());
-    private static File built, building;
+    private static boolean building;
     private static Backdrop backdrop;
+    private static int backdropStyle = -1;
 
     /**
-     * This hour's photo, ready to draw as the home screen's background, or null (off, or the first one still being
-     * built). When the hour changes, the previous one stays until the new one is ready; then `ready` runs.
+     * The bundled day/night landscapes, prepared once off the UI thread. HomeView's existing solar transition
+     * selects and blends the two full-resolution images, including their matching glass colors.
      */
     static synchronized Backdrop backdrop(Context c, Runnable ready) {
         if (!on(c)) {
             backdrop = null;
-            built = null;
             return null;
         }
-        List<File> list = files(c);
-        File want = list.get((int) ((System.currentTimeMillis() / 3_600_000L) % list.size()));
-        if (!want.equals(built) && !want.equals(building)) {
-            building = want;
+        final int style = Prefs.homeStyle();
+        if (backdropStyle != style) backdrop = null;
+        if (backdrop == null && !building) {
+            building = true;
             worker.execute(() -> {
                 Backdrop b = null;
-                try {
-                    Bitmap src = BitmapFactory.decodeFile(want.getPath());
-                    if (src != null) b = Backdrop.make(src, true, true);
-                } catch (RuntimeException | OutOfMemoryError e) {
-                    AppLog.w("photos: background from " + want.getName() + ": " + e.getMessage());
+                String prefix = style == 1 ? "wallpaper-minimal" : style == 2 ? "wallpaper-cinema" : "wallpaper";
+                try (InputStream day = c.getAssets().open(prefix + "-day.png");
+                     InputStream night = c.getAssets().open(prefix + "-night.png")) {
+                    Bitmap dayImage = BitmapFactory.decodeStream(day);
+                    if (dayImage == null) throw new IOException("day wallpaper unreadable");
+                    Backdrop dayBackdrop = Backdrop.make(dayImage, true, true);
+                    Bitmap nightImage = BitmapFactory.decodeStream(night);
+                    if (nightImage == null) throw new IOException("night wallpaper unreadable");
+                    b = Backdrop.pair(dayBackdrop, Backdrop.make(nightImage, true, true));
+                } catch (IOException | RuntimeException | OutOfMemoryError e) {
+                    AppLog.w("photos: day/night background: " + e.getMessage());
                 }
                 synchronized (Photos.class) {
-                    building = null;
+                    building = false;
                     if (b == null) return;
                     backdrop = b;
-                    built = want;
+                    backdropStyle = style;
                 }
                 main.post(ready);
             });
@@ -278,7 +285,6 @@ final class Photos {
         if (queued != null) for (File f : queued) f.delete();
         synchronized (Photos.class) {
             backdrop = null;
-            built = null;
         }
     }
 

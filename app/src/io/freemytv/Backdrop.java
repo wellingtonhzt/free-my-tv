@@ -48,6 +48,25 @@ final class Backdrop {
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
 
+    /** A matched landscape pair; HomeView blends these with its existing local sunrise/sunset theme. */
+    static Backdrop pair(Backdrop day, Backdrop night) {
+        return new Backdrop(day, night);
+    }
+
+    private Backdrop(Backdrop day, Backdrop night) {
+        image = null;
+        frost = day.frost;
+        glass = day.glass;
+        wide = day.wide;
+        wideShader = day.wideShader;
+        light = day.light;
+        lightGlass = day.lightGlass;
+        lightImage = day.lightImage;
+        nightFrost = night.nightFrost;
+        nightGlass = night.nightGlass;
+        nightImage = night.nightImage;
+    }
+
     private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, int[] light, int[] lightGlass,
                      int[] night, int[] nightGlass) {
         this(image, frost, glass, wide, light, lightGlass, night, nightGlass, light, night, FW, FH);
@@ -100,10 +119,13 @@ final class Backdrop {
             int[] night = darken(frost.clone(), 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
             if (own) {
-                int[] sharp = reduce(out, GW, GH, 1, 1);
-                int[] lightBg = ramp(sharp.clone(), 0.82f, 0.45f, true), nightBg = ramp(sharp, 0.76f, 0.5f, false);
+                // Personal wallpapers retain every pixel the TV's UI can display. Only the glass is blurred.
+                int[] sharp = new int[W * H];
+                out.getPixels(sharp, 0, W, 0, 0, W, H);
+                int[] lightBg = ramp(sharp.clone(), W, H, 0.82f, 0.45f, true);
+                int[] nightBg = ramp(sharp, W, H, 0.76f, 0.5f, false);
                 out.recycle();
-                return new Backdrop(null, frost, null, wide, light, lightGlass, night, nightGlass, lightBg, nightBg, GW, GH);
+                return new Backdrop(null, frost, null, wide, light, lightGlass, night, nightGlass, lightBg, nightBg, W, H);
             }
             out.recycle();
             return new Backdrop(null, frost, null, wide, light, lightGlass, night, nightGlass);
@@ -216,15 +238,15 @@ final class Backdrop {
         return px;
     }
 
-    /** Whitens (or darkens) by `left` up to 45% of the width, easing to `right` by 70% (a GW × GH image). */
-    private static int[] ramp(int[] px, float left, float right, boolean light) {
-        int[] col = new int[GH];
-        for (int x = 0; x < GW; x++) {
-            float t = Math.max(0, Math.min(1, (x / (float) GW - 0.45f) / 0.25f));
+    /** Whitens (or darkens) by `left` up to 45% of the width, easing to `right` by 70%. */
+    private static int[] ramp(int[] px, int width, int height, float left, float right, boolean light) {
+        int[] col = new int[height];
+        for (int x = 0; x < width; x++) {
+            float t = Math.max(0, Math.min(1, (x / (float) width - 0.45f) / 0.25f));
             float a = left + (right - left) * t * t * (3 - 2 * t);
-            for (int y = 0; y < GH; y++) col[y] = px[y * GW + x];
+            for (int y = 0; y < height; y++) col[y] = px[y * width + x];
             if (light) whiten(col, a); else darken(col, a);
-            for (int y = 0; y < GH; y++) px[y * GW + x] = col[y];
+            for (int y = 0; y < height; y++) px[y * width + x] = col[y];
         }
         return px;
     }

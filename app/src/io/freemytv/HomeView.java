@@ -105,6 +105,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final int Z_TOP = 4, Z_CARDS = 5;
 
     private final Activity activity;
+    private final int homeStyle = Prefs.homeStyle();
+    private boolean minimalStyle() { return homeStyle == 1; }
+    private boolean cinemaStyle() { return homeStyle == 2; }
     private final Scene scene = new Scene();
     private final HomeData data;
     private final Recs recs;
@@ -568,8 +571,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
-        measure(platter, width, Math.round(320 * kk));
-        measure(tiles, width, Math.round(270 * kk));
+        measure(platter, width, homeStyle == 0 ? Math.round(320 * kk) : height);
+        measure(tiles, width, homeStyle == 0 ? Math.round(270 * kk) : height);
         measure(drawerLayer, width, Math.round(600 * kk));
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
@@ -586,8 +589,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         sky.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
-        place(platter, 0, Math.round(750 * kk));
-        place(tiles, 0, Math.round(790 * kk));
+        place(platter, 0, homeStyle == 0 ? Math.round(750 * kk) : 0);
+        place(tiles, 0, homeStyle == 0 ? Math.round(790 * kk) : 0);
         place(drawerLayer, 0, Math.round(470 * kk));
         sheetLayer.layout(0, 0, width, height);
         sheetLayer.setPivotX(width / 2f);
@@ -774,7 +777,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         show(heroLayer, top, lift);
         show(status, top, lift);
         show(platter, home, lift);
-        show(tiles, home, lift);
+        show(tiles, minimalStyle() ? home * (1 - dc) : home, minimalStyle() ? 0 : lift);
         float da = home * smoothstep(0.1f, 0.6f, dc);
         drawerLayer.setTranslationY((1 - d) * shift);
         drawerLayer.setAlpha(da);
@@ -1230,6 +1233,36 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void layoutShelf() {
         int n = Math.min(shelf.size(), shelfVisible);
+        if (minimalStyle()) {
+            // A vertical rail, with every app inside the TV's safe area.
+            float gap = 38 * k;
+            float size = Math.min(112 * k, (h - 220 * k - Math.max(0, n - 1) * gap) / Math.max(1, n));
+            float start = (h - (n * size + Math.max(0, n - 1) * gap)) / 2;
+            platterRect.set(80 * k, start - 35 * k, 370 * k, h - start + 35 * k);
+            shelfFirst = 0;
+            for (int i = 0; i < shelf.size(); i++) {
+                float y = start + i * (size + gap);
+                tileRects[i].set(126 * k, y, 126 * k + size, y + size);
+                snap(tileRects[i]);
+            }
+            crispLogos.clear();
+            return;
+        }
+        if (cinemaStyle()) {
+            float gap = 38 * k;
+            float tw = Math.min(286 * k, ((CONTENT_R - MARGIN) * k - Math.max(0, n - 1) * gap) / Math.max(1, n));
+            float th = 300 * k, left = (w - (n * tw + Math.max(0, n - 1) * gap)) / 2;
+            float top = 578 * k;
+            platterRect.set(left - 25 * k, top - 25 * k, w - left + 25 * k, top + th + 25 * k);
+            shelfFirst = Math.max(0, Math.min(shelfFirst, shelf.size() - n));
+            for (int i = 0; i < shelf.size(); i++) {
+                float x = left + (i - shelfFirst) * (tw + gap);
+                tileRects[i].set(x, top, x + tw, top + th);
+                snap(tileRects[i]);
+            }
+            crispLogos.clear();
+            return;
+        }
         float pad = SHELF_PAD * k, gap = TILE_GAP * k;
         float full = (CONTENT_R - MARGIN) * k;
         // Tiles in the TV banners' own 16:9, so an app's art is never stretched; never taller than L_TILE_H. The glass
@@ -1269,6 +1302,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Shelf layer: the glass bar and its shadow (it only changes with the background). */
     private void drawPlatter(Canvas c) {
+        if (homeStyle != 0) return;   // the other layouts use individual cards rather than a glass dock
         if (shelf.isEmpty()) return;
         float radius = (TILE_RADIUS + SHELF_PAD) * k;
         tmp.set(platterRect);
@@ -1492,6 +1526,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * top. No border and no reflection, as Apple does it.
      */
     private void drawShelfTile(Canvas c, int i) {
+        if (homeStyle != 0) {
+            drawStyledTile(c, i);
+            return;
+        }
         HomeApps.Item it = shelf.get(i);
         // Lifted to be moved: a little bigger than focused, with a deeper shadow.
         float l = i == liftIndex ? Math.max(0, moveLift.value) : 0;
@@ -1554,6 +1592,53 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * image's own, made with it (HomeApps.Item, Backdrop) and dropped with it; the canvas does the scaling, so drawing
      * changes nothing in it and allocates nothing.
      */
+    private void drawStyledTile(Canvas c, int i) {
+        HomeApps.Item it = shelf.get(i);
+        RectF base = tileRects[i];
+        float f = Ui.clamp(tileFocus[i].value), scale = 1 + 0.09f * f;
+        float bw = base.width(), bh = base.height();
+        float radius = minimalStyle() ? bw / 2 : 12 * k;
+        c.save();
+        c.scale(scale, scale, base.centerX(), base.centerY());
+        tileFill.setShader(null);
+        int[] brandStyle = TILE_STYLE.get(it.key);
+        tileFill.setColor(brandStyle == null ? 0xFF151B27 : brandStyle[1]);
+        c.drawRoundRect(base, radius, radius, tileFill);
+        if (it.logo != null) {
+            cell.set(base);
+            if (cinemaStyle()) cell.offset(0, -30 * k);
+            drawLogo(c, it, cell, 1, brandStyle == null ? 0 : brandStyle[2]);
+        } else if (it.tile != null) {
+            if (minimalStyle()) coverImage(c, it.tile, it.tileShader, base, radius, 1);
+            else {
+                cell.set(base.left + 16 * k, base.top + 38 * k, base.right - 16 * k, base.top + 178 * k);
+                coverImage(c, it.tile, it.tileShader, cell, 8 * k, 1);
+            }
+        }
+        if (f > 0.001f) {
+            rim.setShader(null);
+            rim.setColor(Ui.alpha(tone(0xFF263D57, WHITE), f));
+            rim.setStrokeWidth(3 * k);
+            c.drawRoundRect(base, radius, radius, rim);
+        }
+        if (cinemaStyle()) {
+            fitPaint.set(lCardTitle);
+            fitPaint.setTextSize(26 * k);
+            fitPaint.setColor(WHITE);
+            fitPaint.setTextAlign(Paint.Align.CENTER);
+            c.drawText(TextUtils.ellipsize(it.label, fitPaint, bw - 28 * k, TextUtils.TruncateAt.END).toString(),
+                    base.centerX(), base.bottom - 38 * k, fitPaint);
+        }
+        c.restore();
+        if (minimalStyle() && zone == Z_SHELF && i == shelfIndex && f > 0.01f) {
+            fitPaint.set(lCardMeta);
+            fitPaint.setColor(tone(L_INK, WHITE));
+            fitPaint.setAlpha(Math.round(255 * f));
+            c.drawText(TextUtils.ellipsize(it.label, fitPaint, 300 * k, TextUtils.TruncateAt.END).toString(),
+                    base.right + 40 * k, base.centerY() + Ui.halfCap(fitPaint), fitPaint);
+        }
+    }
+
     private void roundImage(Canvas c, Bitmap image, BitmapShader shader, RectF cell, float r) {
         float sx = cell.width() / image.getWidth(), sy = cell.height() / image.getHeight();
         c.save();
@@ -2326,6 +2411,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void move(int dx, int dy) {
+        if (minimalStyle() && !sheetOpen && zone == Z_SHELF) {
+            if (dy != 0 && shelfIndex + dy >= 0 && shelfIndex + dy < shelf.size()) {
+                dx = dy;
+                dy = 0;
+            } else if (dx != 0) {
+                dy = dx > 0 ? 1 : -1;   // right: inputs/weather drawer; left: top shortcuts
+                dx = 0;
+            }
+        }
         if (sheetOpen) {
             moveGrid(dx, dy);
             return;
@@ -2572,6 +2666,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - Moving apps on the shelf
 
     private boolean canReorder() {
+        if (minimalStyle()) return false;   // the vertical rail is reordered in Settings > Shelf
         if (sheetOpen || zone != Z_SHELF || shelfIndex >= shelf.size() || shelf.size() < 2) return false;
         HomeApps.Item it = shelf.get(shelfIndex);
         return it.kind == HomeApps.APP && it.pkg != null;
@@ -3138,6 +3233,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawClock(Canvas c) {
+        if (homeStyle != 0) {
+            c.save();
+            // Preserve the existing clock/weather typography and its solar colors at a different scale/position.
+            if (minimalStyle()) {
+                c.translate(650 * k, 112 * k);
+                c.scale(0.86f, 0.86f);
+            } else {
+                c.translate(66 * k, -70 * k);
+                c.scale(0.67f, 0.67f);
+            }
+            drawClockContents(c);
+            c.restore();
+            return;
+        }
+        drawClockContents(c);
+    }
+
+    private void drawClockContents(Canvas c) {
         float x = MARGIN * k;
         c.drawText(dateText, x - Ui.leftBearing(lDate, dateText), L_DATE_BASE * k, lDate);
         c.drawText(clockText, x - Ui.leftBearing(lClock, clockText), L_CLOCK_BASE * k, lClock);

@@ -182,6 +182,11 @@ final class Prefs {
 
     static void setTheme(String v) { put("theme", v); }
 
+    /** Visual layout, independent from the automatic day/night appearance. Dunas remains the default. */
+    static int homeStyle() { return Math.max(0, Math.min(2, sp().getInt("homeStyle", 0))); }
+    static void setHomeStyle(int value) { put("homeStyle", Math.floorMod(value, 3)); }
+    static String homeStyleName() { return new String[] {"Dunas", "Minimalista", "Cinema"}[homeStyle()]; }
+
     // MARK: - City
 
     static String city() { return sp().getString("city", Place.city()).trim(); }

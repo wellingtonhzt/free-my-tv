@@ -4,6 +4,8 @@
 
 # Free My TV
 
+> **Fork personalizado:** três estilos (Dunas, Minimalista e Cinema), fundos próprios de dia/noite e proteção de tela original preservada. Veja [PERSONALIZACOES.md](PERSONALIZACOES.md) para compilar e atualizar esta versão.
+
 **A fast, ad-free home screen for Google TV, LG and Samsung TVs.**
 
 Trending picks from your own apps, the weather at a glance, and a look that follows the sunset.<br>
